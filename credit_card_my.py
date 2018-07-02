@@ -128,8 +128,6 @@ def psi(test1,test2,bins):
         b = b/sum(b)
 
         from math import log
-        #避免x为0,需要平滑，这里需要说明的是，不能直接将x平滑为0，因为log(0)为-∞，它减去负数应该还为负数，但是若平滑为0，0减去负数为正数，这会导致最终psi可能为负数
-        #需在前一步就频数平滑+1
         log_a = a.apply(lambda x:log(x))
         log_b = b.apply(lambda x:log(x))
         return sum((b-a)*(log_b-log_a))
@@ -138,8 +136,7 @@ def psi(test1,test2,bins):
 def psi_q(test1,test2,n):
     with sns.axes_style("darkgrid"):
         cat1 = pd.qcut(test1,n,retbins=True)
-        #由于数据分布原因：前段数据过多，等分出现了重复bin，此时会报错，测试发现最大只能4等分。因而这里输入n=4
-        #另外，即使调小能得到结果，也不一定是真正的4等分，因为unique bin并不代表里面的数据是unique的。
+    
         cat2 = pd.cut(test2,bins = cat1[1],retbins=True,include_lowest=True)#include_lowest=True必须有
         a = pd.value_counts(cat1[0]).sort_index()
         b = pd.value_counts(cat2[0]).sort_index()
@@ -306,10 +303,7 @@ if __name__ == '__main__':
         locals()[x+'_tre'] = decession_tree_bin( X[x].reshape(-1,1),y,bin=6)
         print x , locals()[x+'_tre'] 
 
-    #下面三种取值方式都以卡方分箱xi_chi为例
-
-    ##分箱内数值用分箱的均值/中位数/较近边界值代替
-    ##需要注意的是，若用均值、中位数，上下边界需要指定，但每列的上下边界都不一样，为简便，这里采用较近边界值代替（取值个数只有：分箱数-1）
+    
     def close(x,bins):
         t = [abs(x-i) for i in bins]
         p = t.index(min(t))
@@ -371,149 +365,7 @@ if __name__ == '__main__':
     X_s_resampled = pd.DataFrame(X_s_resampled,columns=X_s.columns)
     y_s_resampled = pd.Series(y_s_resampled)
 
-    ##X,y,X_le,X_me,X_s,X_resampled, y_resampled,X_s_resampled,y_s_resampled已准备好
-
-    #--------------------------------  特征工程  --------------------------------
-
-    ## 这里需要大量的可视化的数据分析工作，推荐在jupyter notebook上操作
-    ## 这里的train已经是经过初步数据清洗的数据
-
-    """
-    #首先大体观察各维度之间的两两关系，dropna=True的功能貌似没有完全实现，最好是在缺失值处理之后再画该图
-    sns.pairplot(data = train.sample(frac=0.8),vars = ['x1','x2','x3','x4','x5','x6','x7','x8','x9','x10'], hue="y",dropna=True)
-    #具体观察两维度之间的关系
-    sns.jointplot("x6", "x8", data=train.sample(frac=0.8), kind="reg")
-
-    #Filter
-    from sklearn.feature_selection import SelectPercentile
-    from sklearn.feature_selection import SelectKBest
-
-    ##变异系数，典型值是0.15，越大越好
-    X_std = X.std()
-    X_mean = X.mean()
-    C_V = X_std.div(X_mean)
-    print C_V
-
-    ##pearsonr，针对连续定量变量，线性关系
-    pearsonr_cor = train.corr('pearson') #并没有返回p值，需要另外计算p值并画图
-    plt.figure(figsize=(10,10))
-    sns.heatmap(pearsonr_cor, vmax=1, square=True, cmap="Blues",annot=True,fmt='.2f')
-
-    from scipy.stats import pearsonr
-    pearsonr_c = pd.DataFrame(np.arange(n*n).reshape((n,n)),index=train.columns,columns=train.columns)
-    pearsonr_p = copy.deepcopy(pearsonr_c)
-
-    for i in range(n):
-        for j in range(n):
-            pearsonr_c.iloc[i,j] = pearsonr(train.iloc[:,i],train.iloc[:,j])[0]
-            pearsonr_p.iloc[i,j] = pearsonr(train.iloc[:,i],train.iloc[:,j])[1]
-
-    plt.figure(figsize=(10,10))
-    sns.heatmap(pearsonr_p, vmax=1, square=True, cmap="Blues",annot=True,fmt='.2f')#显著性检验，p值范围是[0,1]，值越小越好，即：热力图颜色越浅越好
-
-    ##spearman,针对连续定量变量/定序变量，前提假设比pearsonr弱，只考虑有序等级
-    from scipy.stats import spearmanr
-    n = train.shape[1]
-    spearmanr_c = pd.DataFrame(np.arange(n*n).reshape((n,n)),index=train.columns,columns=train.columns)
-    spearmanr_p = copy.deepcopy(spearmanr_c)
-
-    for i in range(n):
-        for j in range(n):
-            spearmanr_c.iloc[i,j] = spearmanr(train.iloc[:,i],train.iloc[:,j])[0]
-            spearmanr_p.iloc[i,j] = spearmanr(train.iloc[:,i],train.iloc[:,j])[1]
-
-    plt.figure(figsize=(10,10))
-    sns.heatmap(spearmanr_p, vmax=1, square=True, cmap="Blues",annot=True,fmt='.2f')
-
-    ##kendall秩相关系数，针对有序分类变量（定序变量）
-    from scipy.stats import kendalltau
-    n = train.shape[1]
-    kendalltau_c = pd.DataFrame(np.arange(n*n).reshape((n,n)),index=train.columns,columns=train.columns)
-    kendalltau_p = copy.deepcopy(kendalltau_c)
-
-    for i in range(n):
-        for j in range(n):
-            kendalltau_c.iloc[i,j] = kendalltau(train.iloc[:,i],train.iloc[:,j])[0]
-            kendalltau_p.iloc[i,j] = kendalltau(train.iloc[:,i],train.iloc[:,j])[1]
-
-    plt.figure(figsize=(10,10))
-    sns.heatmap(kendalltau_p, vmax=1, square=True, cmap="Blues",annot=True,fmt='.2f')
-
-    ##互信息
-    from sklearn.feature_selection import mutual_info_classif
-    fs_m = SelectPercentile(mutual_info_classif,percentile=50).fit(X,y)
-    fs_m.scores_
-
     
-    ##MIC，经典的互信息是针对定性资料的，为了处理定量数据，最大信息系数法MIC被提出，计算速度慢。
-    from minepy import MINE
-    mine = MINE()
-    mine_c = pd.DataFrame(np.arange(n*n).reshape((n,n)),index=train.columns,columns=train.columns)
-
-    for i in range(n):
-        for j in range(n):
-            t = mine.compute_score(train.iloc[:,i],train.iloc[:,j])
-            if t == None:
-                mine_c.iloc[i,j] = -999
-            else:
-                mine_c.iloc[i,j] = t.mic()
-
-    ##卡方检验，经典的卡方检验也是针对定性资料，但貌似sklearn包中已做了连续特征离散化操作，可以直接拿来用
-    from sklearn.feature_selection import chi2
-    fs_chi2 = SelectPercentile(chi2,percentile=50).fit(X,y)
-    fs_chi2.scores_
-    fs_chi2.pvalues_
-
-    ##f检验
-    from sklearn.feature_selection import f_classif
-    fs_f = SelectPercentile(f_classif,percentile=50).fit(X,y)
-    fs_f.scores_
-    fs_f.pvalues_
-
-    ##IV
-    iv = []
-    for i in X.columns:
-        #print locals()[i+'_chi']
-        iv.append(woe(train,i,locals()[i+'_chi'],'y').iloc[-1,-1])
-    iv
-
-    ##某种模型的交叉验证后平均score
-    from sklearn.model_selection import cross_val_score
-    from sklearn.ensemble import RandomForestClassifier
-
-    RF = RandomForestClassifier(class_weight="balanced")#考虑样本不均衡问题
-    scores=[]
-
-    #对于DataFrame X，X.iloc[:, i:i+1]返回的是dataframe，shape为(m,1)；X.iloc[:,i]返回series，shape为(m,)。对于array X，同理
-    for i in range(n-1):#n包括y
-        score = cross_val_score(RF, X.iloc[:, i:i+1], y, cv=5,scoring="roc_auc")#考虑样本不均衡问题
-        scores.append((X.columns[i],format(score.mean(),'.3f')))
-    print sorted(scores,key=lambda e:e[1],reverse=True)#默认是从小到大的正序
-
-    #Wrapper，主要指：递归消除特征RFE
-    from sklearn.feature_selection import RFE
-    from sklearn.linear_model import LogisticRegression
-    LR = LogisticRegression(class_weight="balanced")
-
-    rfe = RFE(estimator=LR, n_features_to_select=1).fit(X,y)
-    #n_features_to_select=1是为了获得具体的排名，RFE会将挑选出来的特征都排名为1
-    print rfe.ranking_
-
-    #Embedded
-
-    ##基于惩罚项
-    from sklearn.feature_selection import SelectFromModel
-    LR = LogisticRegression(class_weight="balanced",penalty="l1",C=1)#C为正则化系数λ的倒数，越小正则化越强
-    sfm1 = SelectFromModel(LR,threshold=1e-02)#通过调整threshold来筛选特征
-    X_new = sfm1.fit_transform(X,y)#返回特征选择后的X'（ndarray类型）
-    print X_new.shape
-
-    ##基于树模型
-    from sklearn.ensemble import GradientBoostingClassifier
-    GBDT = GradientBoostingClassifier().fit(X,y)
-    X_new = SelectFromModel(GBDT,prefit=True).transform(X)
-    
-    """
 
     #--------------------------------  测试集准备  --------------------------------
     #重复值
@@ -556,7 +408,6 @@ if __name__ == '__main__':
     test_X_s = pd.DataFrame(s.transform(test_X),columns = test_X.columns)
     test_X_me_s = pd.DataFrame(me_s.transform(test_X_me),columns = test_X_me.columns)
 
-    ##test_X,test_y,test_X_le,test_X_me,test_X_s,test_X_me_s已准备好
 
     #--------------------------------  模型训练  --------------------------------
     #未标准化样本以决策树为例
@@ -675,35 +526,6 @@ if __name__ == '__main__':
     plot_learning_curve(dt_me,X_me,y,train_sizes=np.linspace(0.1,1,10),scoring='roc_auc')
 
 
-    #模型解释
-
-    ##1. 先生成dot文件，再在命令行生成pdf
-    from sklearn import tree
-    with open("dt.dot", 'w') as f:
-        f = tree.export_graphviz(dt.best_estimator_, out_file=f,
-                                feature_names=original_columns[1:], 
-                            class_names=['Not','Yes'],
-                              rounded=True)      
-    #在终端对应路径下输入命令行：dot -Tpdf DT.dot -o DT.pdf
-
-    ##2. pydotplus直接生成iris.pdf，避免切换到终端操作
-    import pydotplus 
-    dot_data = tree.export_graphviz(dt.best_estimator_, out_file=None,
-                                   feature_names=original_columns[1:], 
-                                    class_names=['Not','Yes'],
-                                      rounded=True) 
-    graph = pydotplus.graph_from_dot_data(dot_data) 
-    graph.write_pdf("dt.pdf") 
-
-    ##3. 在jupyter notebook上直接显示
-    from IPython.display import Image  
-    dot_data = tree.export_graphviz(dt.best_estimator_, out_file=None, 
-                             feature_names=original_columns[1:], 
-                            class_names=['Not','Yes'],
-                              rounded=True)  
-    graph = pydotplus.graph_from_dot_data(dot_data)  
-    Image(graph.create_png())
-
 
     #标准化样本以逻辑回归为例
     #基本样本
@@ -801,188 +623,3 @@ if __name__ == '__main__':
 
 
 
-
-
-
-"""
-import sys,os,time,pickle
-import pandas as pd
-import numpy as np
-from sklearn import metrics
-from sklearn import preprocessing
-from sklearn.preprocessing import Imputer
-from sklearn import cross_validation
-from sklearn import feature_selection
-from scipy.stats import pearsonr
-from sklearn.decomposition import PCA
-from sklearn.lda import LDA
-
-
-#Linear Regression
-def linear_regression(train_X,train_y_r):
-    from sklearn.linear_model import LinearRegression
-    model = LinearRegression()
-    model.fit(train_X,train_y_r)
-    return model
-
-
-# Logistic Regression Classifier
-def logistic_regression_classifier(train_x, train_y):
-    from sklearn.linear_model import LogisticRegression
-    model = LogisticRegression(penalty='l2')
-    model.fit(train_x, train_y)
-    return model
-
-# Multinomial Naive Bayes Classifier
-def naive_bayes_classifier(train_x, train_y):
-    from sklearn.naive_bayes import MultinomialNB
-    model = MultinomialNB(alpha=0.01)
-    model.fit(train_x, train_y)
-    return model
-
-# KNN Classifier
-def knn_classifier(train_x, train_y):
-    from sklearn.neighbors import KNeighborsClassifier
-    model = KNeighborsClassifier()
-    model.fit(train_x, train_y)
-    return model
-
-# Random Forest Classifier
-def random_forest_classifier(train_x, train_y):
-    from sklearn.ensemble import RandomForestClassifier
-    model = RandomForestClassifier(n_estimators=8)
-    model.fit(train_x, train_y)
-    return model
-
-# Decision Tree Classifier
-def decision_tree_classifier(train_x, train_y):
-    from sklearn import tree
-    model = tree.DecisionTreeClassifier()
-    model.fit(train_x, train_y)
-    return model
-
-
-
-# GBDT(Gradient Boosting Decision Tree) Classifier
-def gradient_boosting_classifier(train_x, train_y):
-    from sklearn.ensemble import GradientBoostingClassifier
-    model = GradientBoostingClassifier(n_estimators=200)
-    model.fit(train_x, train_y)
-    return model
-
-# SVM Classifier
-def svm_classifier(train_x, train_y):
-    from sklearn.svm import SVC
-    model = SVC(kernel='rbf', probability=True)
-    model.fit(train_x, train_y)
-    return model
-
-#Adaboost
-def adaboost_classifier(train_x,train_y):
-    from sklearn.ensemble import AdaBoostClassifier
-    model = AdaBoostClassifier(n_estimators=200)
-    model.fit(train_x,train_y)
-    return model
-
-def read_data(data_file):
-    data = pd.read_csv(data_file)
-
-    #划分训练集和测试集（分类）
-    train_X, test_X, train_y, test_y = cross_validation.train_test_split(data[data.columns[2:]], data['SeriousDlqin2yrs']
-    , test_size = 0.2, random_state = 0) #返回数据类型为dataframe
-
-
-    # 缺失值处理（mean,median,most_frequent）
-    imp = Imputer(missing_values='NaN', strategy='median', axis=0)
-    imp.fit(train_X)
-    train_X = imp.transform(train_X) # train_X数据类型变为ndarray
-    test_X = imp.transform(test_X)
-    ##train_X.dropna(how = 'any',inplace = True)
-
-    #异常值处理
-    olp = preprocessing.RobustScaler().fit(train_X)
-    train_X = olp.transform(train_X) # transform函数本身对train_X没影响，必须赋值
-    test_X = olp.transform(test_X)
-
-   
-    #标准化数据
-    #scaler = preprocessing.StandardScaler().fit(train_X)
-    scaler = preprocessing.MinMaxScaler().fit(train_X) # 归一化
-    #scaler = preprocessing.Normalizer().fit(train_X) #正则化
-    train_X = scaler.transform(train_X) # transform函数本身对train_X没影响，必须赋值
-    test_X = scaler.transform(test_X)
-
-
-
-    #特征选择
-    #train_X_new = feature_selection.VarianceThreshold(threshold=3).fit_transform(train_X)#方差选择法
-    #train_X_new = feature_selection.SelectKBest(feature_selection.f_regression, k = 10).fit_transform(train_X,train_y_r)#相关系数法
-    fs = feature_selection.SelectPercentile(feature_selection.chi2, percentile = 80).fit(train_X,train_y)#train_X中数据需非负
-    train_X = fs.transform(train_X)
-    test_X = fs.transform(test_X)
-
-
-    #降维
-
-    #PCA
-    dec = PCA(n_components=4).fit(train_X)
-    train_X = dec.transform(train_X)
-    test_X = dec.transform(test_X)
-
-    #LDA 分类
-    dec = LDA(n_components=1).fit(train_X,train_y_c)
-    train_X = dec.transform(train_X)
-    test_X = dec.transform(test_X)
-    
-
-    return train_X, train_y, test_X, test_y
-
-
-if __name__ == '__main__':
-    pwd = os.getcwd()
-    data_file = pwd+"/credit_card_data.csv"
-    #thresh = 0.5
-    model_save_file = pwd+'/mode_save.txt'
-    model_save = {}
-
-    test_classifiers = [ 'NB','KNN', 'LR', 'RF', 'DT', 'SVM', 'Ada', 'GBDT']
-    classifiers = {'NB': naive_bayes_classifier,
-                   'KNN': knn_classifier,
-                   'LR': logistic_regression_classifier,
-                   'RF': random_forest_classifier,
-                   'DT': decision_tree_classifier,
-                   'SVM': svm_classifier,
-                   'Ada': adaboost_classifier,
-                   'GBDT': gradient_boosting_classifier
-                   }
-
-    print('reading training and testing data...')
-    train_X, train_y, test_X, test_y = read_data(data_file)
-
-    for classifier in test_classifiers:
-        if classifier == 'SVM' or classifier == 'NB' or classifier == 'LR':
-            continue
-        print('******************* %s ********************' % classifier)
-        start_time = time.time()
-        model = classifiers[classifier](train_X, train_y)
-        print('training took %fs!' % (time.time() - start_time))
-        predicted = model.predict(test_X)
-        if model_save_file != None:
-            model_save[classifier] = model
-        #print(metrics.classification_report(test_y_c, predicted))
-        #print 'confusion_matrix:'
-        #print (metrics.confusion_matrix(test_y_c, predicted))
-        print 'AUC:', metrics.roc_auc_score(test_y, predicted)
-        
-        precision = metrics.precision_score(test_y_c, predict)
-        recall = metrics.recall_score(test_y_c, predict)
-        print('precision: %.2f%%, recall: %.2f%%' % (100 * precision, 100 * recall))
-        accuracy = metrics.accuracy_score(test_y_c, predict)
-        print('accuracy: %.2f%%' % (100 * accuracy))
-       
-
-
-    if model_save_file != None:
-        pickle.dump(model_save, open(model_save_file, 'wb'))
-
-"""
